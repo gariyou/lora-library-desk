@@ -67,6 +67,9 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: gariyou/sd-forge-library-desk-bridge
+          # Keep the comparison reproducible while bridge changes are reviewed separately.
+          # Update this revision together with forge_bridge/ when syncing a new version.
+          ref: 919d78b2ad92a0cdca2ad6cebb78f5352d59771f
           path: upstream-bridge
       - name: Compare bundled copy
         run: |
