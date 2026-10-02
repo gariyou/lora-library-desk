@@ -12,6 +12,7 @@ import json
 import mimetypes
 import os
 import re
+import secrets
 import shutil
 import socket
 import sqlite3
@@ -39,6 +40,7 @@ forge_connector = importlib.util.module_from_spec(_forge_spec)
 _forge_spec.loader.exec_module(forge_connector)
 DATA_ROOT = APP_ROOT / "data"
 LORA_CONFIG_PATH = DATA_ROOT / "lora-manager-config.json"
+LAN_TOKEN_PATH = DATA_ROOT / "lan-token.txt"
 LORA_DB_PATH = DATA_ROOT / "lora-manager.sqlite3"
 LEGACY_LORA_STORE_PATH = DATA_ROOT / "lora-manager-db.json"
 
@@ -4898,8 +4900,73 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
     return selected or None
 
 
+# Fixed ID of the bundled Chrome extension (derived from the "key" in
+# chrome_extension/manifest.json). Forks that change the key can add their
+# own IDs with --extension-id or the LIBRARY_DESK_EXTENSION_IDS variable.
+LIBRARY_DESK_EXTENSION_ID = "cmfddaijajbljjdalpabmocolipfkafj"
+EXTENSION_IDS_ENV = "LIBRARY_DESK_EXTENSION_IDS"
+LAN_TOKEN_COOKIE = "library_desk_token"
+LAN_TOKEN_HEADER = "X-Library-Desk-Token"
+LOOPBACK_HOSTNAMES = {"localhost", "127.0.0.1", "::1"}
+# Files a phone may fetch before it has the token cookie (PWA metadata only).
+LAN_TOKEN_EXEMPT_PATHS = {"/manifest.webmanifest", "/app-icon.svg", "/favicon.ico"}
+
+
+def configured_extension_ids(extra=()) -> frozenset:
+    ids = {LIBRARY_DESK_EXTENSION_ID}
+    ids.update(os.environ.get(EXTENSION_IDS_ENV, "").replace(";", ",").split(","))
+    ids.update(extra or ())
+    return frozenset(item.strip().lower() for item in ids if item and item.strip())
+
+
+def is_allowed_host_header(host_header: str, allowed_hosts=frozenset()) -> bool:
+    """Reject DNS-rebinding requests: only IP literals, localhost and explicitly
+    allowed host names may be used to reach the server."""
+    if not host_header:
+        return False
+    try:
+        hostname = urlparse("//" + host_header.strip()).hostname
+    except ValueError:
+        return False
+    if not hostname:
+        return False
+    hostname = hostname.lower().rstrip(".")
+    if hostname == "localhost" or hostname in allowed_hosts:
+        return True
+    try:
+        ipaddress.ip_address(hostname)
+    except ValueError:
+        return False
+    return True
+
+
+def is_loopback_bind_host(host: str) -> bool:
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def load_or_create_lan_token(path: Path = LAN_TOKEN_PATH) -> str:
+    try:
+        token = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        token = ""
+    if len(token) >= 16:
+        return token
+    token = secrets.token_urlsafe(24)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(token + "\n", encoding="utf-8")
+    return token
+
+
 class Handler(BaseHTTPRequestHandler):
     web_root: Path
+    extension_ids: frozenset = configured_extension_ids()
+    allowed_hosts: frozenset = frozenset()
+    lan_token: str | None = None
 
     def _is_browser_import_endpoint(self, path: str) -> bool:
         return path.startswith("/api/lora/browser-imports") or path in {
@@ -4915,8 +4982,89 @@ class Handler(BaseHTTPRequestHandler):
         origin = self.headers.get("Origin", "")
         if not origin:
             return True
-        parsed = urlparse(origin)
-        return parsed.scheme == "chrome-extension" or (parsed.scheme in {"http", "https"} and (parsed.hostname in {"localhost", "127.0.0.1", "::1"} or parsed.netloc == self.headers.get("Host")))
+        try:
+            parsed = urlparse(origin)
+            hostname = (parsed.hostname or "").lower()
+        except ValueError:
+            return False
+        if parsed.scheme == "chrome-extension":
+            return hostname in self.extension_ids
+        if parsed.scheme not in {"http", "https"}:
+            return False
+        if hostname in LOOPBACK_HOSTNAMES:
+            return True
+        host = self.headers.get("Host", "")
+        return parsed.netloc == host and is_allowed_host_header(host, self.allowed_hosts)
+
+    def _client_is_loopback(self) -> bool:
+        try:
+            return ipaddress.ip_address(str(self.client_address[0])).is_loopback
+        except (ValueError, IndexError, TypeError):
+            return False
+
+    def _send_plain(self, status: HTTPStatus, text: str, *, content_type: str = "text/plain") -> None:
+        data = text.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", f"{content_type}; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self._finish_response(data)
+
+    def _lan_token_valid(self, parsed) -> bool:
+        expected = self.lan_token or ""
+        candidates = [self.headers.get(LAN_TOKEN_HEADER, "")]
+        cookie_header = self.headers.get("Cookie", "")
+        for part in cookie_header.split(";"):
+            name, _, value = part.strip().partition("=")
+            if name == LAN_TOKEN_COOKIE:
+                candidates.append(value)
+        return any(value and secrets.compare_digest(value.encode(), expected.encode()) for value in candidates)
+
+    def _guard_request(self) -> bool:
+        """Common checks for every request. Returns False after sending an error."""
+        parsed = urlparse(self.path)
+        if not is_allowed_host_header(self.headers.get("Host", ""), self.allowed_hosts):
+            self._send_plain(HTTPStatus.FORBIDDEN, "Host is not allowed")
+            return False
+        # Cross-site subresource requests (e.g. <img src> from another web site)
+        # carry no Origin header; never let them reach the API.
+        if (
+            parsed.path.startswith("/api/")
+            and not self.headers.get("Origin")
+            and self.headers.get("Sec-Fetch-Site", "").lower() == "cross-site"
+        ):
+            self._send_api_error(HTTPStatus.FORBIDDEN, "Cross-site request is not allowed")
+            return False
+        if not self.lan_token or self._client_is_loopback():
+            return True
+        if parsed.path in LAN_TOKEN_EXEMPT_PATHS or self._lan_token_valid(parsed):
+            return True
+        query = parse_qs(parsed.query, keep_blank_values=True)
+        supplied = (query.get("token") or [""])[0]
+        if self.command == "GET" and supplied and secrets.compare_digest(supplied.encode(), self.lan_token.encode()):
+            query.pop("token", None)
+            remaining = "&".join(f"{quote(k)}={quote(v)}" for k, values in query.items() for v in values)
+            location = parsed.path + (f"?{remaining}" if remaining else "")
+            self.send_response(HTTPStatus.SEE_OTHER)
+            self.send_header(
+                "Set-Cookie",
+                f"{LAN_TOKEN_COOKIE}={self.lan_token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000",
+            )
+            self.send_header("Location", location or "/")
+            self.send_header("Content-Length", "0")
+            self._finish_response()
+            return False
+        if parsed.path.startswith("/api/"):
+            self._send_api_error(HTTPStatus.UNAUTHORIZED, "LAN access token is required")
+        else:
+            self._send_plain(
+                HTTPStatus.UNAUTHORIZED,
+                "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'>"
+                "<title>LoRA Library Desk</title><p>LAN接続にはアクセス用トークンが必要です。"
+                "PCの起動画面に表示された <code>?token=...</code> 付きのURLを開いてください。</p>",
+                content_type="text/html",
+            )
+        return False
 
     def _send_cors_headers(self) -> None:
         if not self._origin_allowed():
@@ -4986,6 +5134,8 @@ class Handler(BaseHTTPRequestHandler):
         return data if isinstance(data, dict) else None
 
     def do_OPTIONS(self) -> None:
+        if not self._guard_request():
+            return
         if not self._origin_allowed():
             return self._send_api_error(HTTPStatus.FORBIDDEN, "Origin is not allowed")
         parsed = urlparse(self.path)
@@ -5036,6 +5186,8 @@ class Handler(BaseHTTPRequestHandler):
         return self._serve_file(image_path)
 
     def do_GET(self) -> None:
+        if not self._guard_request():
+            return
         if self.path.startswith("/api/") and not self._origin_allowed():
             return self._send_api_error(HTTPStatus.FORBIDDEN, "Origin is not allowed")
         parsed = urlparse(self.path)
@@ -5134,6 +5286,8 @@ class Handler(BaseHTTPRequestHandler):
         return self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
     def do_POST(self) -> None:
+        if not self._guard_request():
+            return
         if not self._origin_allowed():
             return self._send_api_error(HTTPStatus.FORBIDDEN, "Origin is not allowed")
         try:
@@ -5527,11 +5681,14 @@ class Handler(BaseHTTPRequestHandler):
         return
 
 
-def build_handler(web_root: Path):
+def build_handler(web_root: Path, *, lan_token: str | None = None, allowed_hosts=(), extension_ids=()):
     class BoundHandler(Handler):
         pass
 
     BoundHandler.web_root = web_root
+    BoundHandler.lan_token = lan_token or None
+    BoundHandler.allowed_hosts = frozenset(h.strip().lower().rstrip(".") for h in allowed_hosts if h and h.strip())
+    BoundHandler.extension_ids = configured_extension_ids(extension_ids)
     return BoundHandler
 
 
@@ -5578,7 +5735,26 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--lan",
         action="store_true",
-        help="Allow access from other devices on the same local network.",
+        help="Allow access from other devices on the same local network (requires the access token shown at startup).",
+    )
+    parser.add_argument(
+        "--allowed-host",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="Extra host name allowed in the Host header (e.g. mypc.local). IP addresses and localhost are always allowed.",
+    )
+    parser.add_argument(
+        "--extension-id",
+        action="append",
+        default=[],
+        metavar="ID",
+        help="Additional Chrome extension ID allowed to call the API (only needed for a modified extension).",
+    )
+    parser.add_argument(
+        "--reset-lan-token",
+        action="store_true",
+        help="Generate a new LAN access token (devices must open the new URL).",
     )
     parser.add_argument(
         "--no-browser",
@@ -5603,22 +5779,38 @@ def main() -> None:
     args = parse_args()
     web_root = APP_ROOT / "web"
     bind_host = "0.0.0.0" if args.lan else args.host
-    server = ThreadingHTTPServer((bind_host, args.port), build_handler(web_root))
+    remote_access = not is_loopback_bind_host(bind_host)
+    lan_token = None
+    if remote_access:
+        if args.reset_lan_token:
+            LAN_TOKEN_PATH.unlink(missing_ok=True)
+        lan_token = load_or_create_lan_token()
+    allowed_hosts = list(args.allowed_host)
+    if not remote_access or bind_host not in {"0.0.0.0", "::"}:
+        allowed_hosts.append(bind_host)
+    handler = build_handler(
+        web_root,
+        lan_token=lan_token,
+        allowed_hosts=allowed_hosts,
+        extension_ids=args.extension_id,
+    )
+    server = ThreadingHTTPServer((bind_host, args.port), handler)
     local_url = f"http://127.0.0.1:{args.port}"
     open_path = args.open_path if args.open_path.startswith("/") else f"/{args.open_path}"
     browser_url = f"{local_url}{open_path}"
 
     print(f"LoRA Library Desk: {local_url}/lora")
     print(f"Root: {local_url}")
-    if args.lan:
+    if remote_access:
         lan_addresses = discover_private_ipv4_addresses()
         if lan_addresses:
-            print("Android / other devices:")
+            print("Android / other devices (keep this URL private; it contains the access token):")
             for address in lan_addresses:
-                print(f"  http://{address}:{args.port}/lora")
+                print(f"  http://{address}:{args.port}/lora?token={lan_token}")
         else:
             print("Android / other devices: local IP address could not be detected automatically.")
             print("  Check your PC's Wi-Fi IPv4 address and open that on Android.")
+            print(f"  Append ?token={lan_token} to the URL the first time.")
     print("Stop: Ctrl+C")
 
     if not args.no_browser:

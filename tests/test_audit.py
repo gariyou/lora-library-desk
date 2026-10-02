@@ -128,9 +128,9 @@ class AuditTests(unittest.TestCase):
             conn.request(method, "/api/lora/pending-download", headers={"Origin":"https://unrelated.test"})
             response = conn.getresponse(); self.assertEqual(response.status, 403)
             self.assertIsNone(response.getheader("Access-Control-Allow-Origin")); response.read(); conn.close()
-        self.assertEqual(request(b"\xff", "chrome-extension://fixture")[0],400)
+        self.assertEqual(request(b"\xff", f"chrome-extension://{server.LIBRARY_DESK_EXTENSION_ID}")[0],400)
         body=json.dumps({"metadata":{"source_url":"https://civitai.red/models/1","download_url":"https://civitai.red/models/1"}}).encode()
-        self.assertEqual(request(body, "chrome-extension://fixture")[0],400)
+        self.assertEqual(request(body, f"chrome-extension://{server.LIBRARY_DESK_EXTENSION_ID}")[0],400)
         self.assertIsNone(server.PENDING_DOWNLOAD_IMPORT)
 
     def test_failed_preview_replacement_preserves_old_image(self):

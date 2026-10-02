@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
   "name": "LoRA Manager Bridge",
-  "version": "0.5.4",
+  "version": "0.5.5",
   "description": "Open the local LoRA Manager, download the current model, and send metadata from the page.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA36+Iba4ogMKdJe9GtVf8TyoKt7naHqJul1ckFnB3Wk7FP+It798G1SShBgWoG+6S+Bl0zq92bqZD+iaVnrfG9/+S57tbHK/Ky6P/aLBvtaKMG1AM/Vw2jNWt9gto09UKB99q6AUAwAAiDWXq8A0Cacz6dCpw2C1c8in7zZ9dI7G/fM8ra8zRN8PJVGZE2+m2eax/2IQthhA7HxVKVol1o9G2wIIEG9MEh2iCSQ6z+sNSNY7YHuodmfwo7j9ZsCL44s2vzNWgQwHC39ozCeWIOaltXBgJUYXY9NR0EMiAOntw8deC8OdlyMhoKKflxBu2kHUEBm8kn8Gm7RTAYVqyqwIDAQAB",
   "permissions": [
     "activeTab",
     "cookies",
