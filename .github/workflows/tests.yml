@@ -27,6 +27,10 @@ jobs:
         shell: bash
         env:
           PYTHONUTF8: "1"
+          # The default Windows TEMP uses an 8.3 short name (RUNNER~1), which
+          # the app resolves to the long name and breaks path comparisons.
+          TMP: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
         run: |
           set -o pipefail
           python -m unittest discover -s tests -p "test_*.py" 2>&1 | tee test-output.txt
