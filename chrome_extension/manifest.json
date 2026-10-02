@@ -1,0 +1,57 @@
+{
+  "manifest_version": 3,
+  "name": "LoRA Manager Bridge",
+  "version": "0.5.4",
+  "description": "Open the local LoRA Manager, download the current model, and send metadata from the page.",
+  "permissions": [
+    "activeTab",
+    "cookies",
+    "downloads",
+    "scripting",
+    "storage",
+    "alarms"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*",
+    "https://civitai.com/*",
+    "https://www.civitai.com/*",
+    "https://*.civitai.com/*",
+    "https://civitai.red/*",
+    "https://www.civitai.red/*",
+    "https://*.civitai.red/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://civitai.com/images/*",
+        "https://www.civitai.com/images/*",
+        "https://civitai.red/images/*",
+        "https://www.civitai.red/images/*"
+      ],
+      "js": [
+        "image_overlay.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://civitai.com/*",
+        "https://www.civitai.com/*",
+        "https://civitai.red/*",
+        "https://www.civitai.red/*"
+      ],
+      "js": [
+        "auto_wait.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "LoRA Manager Bridge",
+    "default_popup": "popup.html"
+  }
+}

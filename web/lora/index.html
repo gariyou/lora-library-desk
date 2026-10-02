@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LoRA Library Desk</title>
+  <meta name="theme-color" content="#91522e">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="LoRA Desk">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/app-icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/lora/lora.css?v=20261002-forge-link-1">
+</head>
+<body class="lora-body">
+  <header class="hero">
+    <div class="hero-copy">
+      <p class="eyebrow">LoRA Library Desk</p>
+      <h1>Trigger とお気に入りを、<br>ひと目で管理する</h1>
+      <p class="lede">
+        モデルのフォルダを登録すると、プレビュー・トリガー・カテゴリ・チェックポイントのおすすめ生成設定をまとめて整理できます。
+        ダウンロードしたまま埋もれがちなモデルを、探しやすい作業台に変えるためのローカル管理アプリです。
+      </p>
+    </div>
+    <div class="hero-actions">
+      <div class="font-scale-control" aria-label="文字サイズ">
+        <span class="font-scale-label">文字サイズ</span>
+        <button id="font-scale-decrease" class="ghost-button small" type="button">A-</button>
+        <span id="font-scale-value" class="meta-pill">100%</span>
+        <button id="font-scale-increase" class="ghost-button small" type="button">A+</button>
+        <button id="font-scale-reset" class="ghost-button small" type="button">標準</button>
+      </div>
+      <button id="refresh-library" class="primary-button" type="button">再スキャン</button>
+    </div>
+  </header>
+
+  <main id="app-shell" class="app-shell">
+    <aside class="settings-column">
+      <section id="forge-panel" class="panel">
+        <div class="panel-head compact"><div><p class="panel-kicker">Forge Neo</p><h2>Forge連携</h2></div></div>
+        <p id="forge-connection-status" class="field-help" aria-live="polite">接続を確認中...</p>
+        <a id="forge-open-link" class="ghost-button small" href="http://127.0.0.1:7860/" target="_blank" rel="noreferrer">Forgeを開く</a>
+        <details>
+          <summary>接続設定</summary>
+          <form id="forge-connection-form">
+            <label class="field-label">Forge URL<input id="forge-url" class="text-input" type="url" value="http://127.0.0.1:7860" required></label>
+            <p class="field-help">このPCの接続先を指定してください。Forge側のLibrary Desk URLはForgeのSettingsから変更できます。</p>
+            <button class="ghost-button small" type="submit">接続先を保存</button>
+          </form>
+        </details>
+        <p class="field-help">モデルを選んで「Forgeへ送る」。調整後は「Forgeの設定を保存」で、そのモデルの生成プリセットを保存できます。</p>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <p class="panel-kicker">Filter</p>
+            <h2>絞り込み</h2>
+          </div>
+        </div>
+        <label class="field-label" for="search-input">
+          検索
+          <input id="search-input" class="text-input" type="search" placeholder="名前 / trigger / メモ / 生成設定">
+        </label>
+        <label class="toggle-option" for="favorite-filter">
+          <input id="favorite-filter" type="checkbox">
+          お気に入りだけ表示
+        </label>
+        <label class="field-label" for="rating-filter">
+          星評価
+          <select id="rating-filter" class="select-input" aria-describedby="rating-filter-help">
+            <option value="all">すべての評価</option>
+            <option value="unrated">未評価</option>
+            <optgroup label="指定の★だけ">
+              <option value="eq-1">★1だけ</option>
+              <option value="eq-2">★2だけ</option>
+              <option value="eq-3">★3だけ</option>
+              <option value="eq-4">★4だけ</option>
+              <option value="eq-5">★5だけ</option>
+            </optgroup>
+            <optgroup label="指定の★以下">
+              <option value="lte-1">★1以下</option>
+              <option value="lte-2">★2以下</option>
+              <option value="lte-3">★3以下</option>
+              <option value="lte-4">★4以下</option>
+              <option value="lte-5">★5以下</option>
+            </optgroup>
+          </select>
+        </label>
+        <p id="rating-filter-help" class="field-help">「以下」は評価済みが対象です。</p>
+        <label class="field-label" for="category-filter">
+          カテゴリ
+          <select id="category-filter" class="select-input"></select>
+        </label>
+        <label class="field-label" for="family-filter">
+          モデル種別
+          <select id="family-filter" class="select-input"></select>
+        </label>
+        <label class="field-label" for="sort-select">
+          並び順
+          <select id="sort-select" class="select-input">
+            <option value="favorite">お気に入り優先</option>
+            <option value="created">新規が新しい順</option>
+            <option value="updated">更新が新しい順</option>
+            <option value="modified">ファイル更新が新しい順</option>
+            <option value="name">名前順</option>
+          </select>
+        </label>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <p class="panel-kicker">Bulk Edit</p>
+            <h2>一括編集</h2>
+          </div>
+          <span id="bulk-count" class="meta-pill">0件</span>
+        </div>
+        <div class="folder-action-row">
+          <button id="select-visible" class="ghost-button small" type="button">表示中を選択</button>
+          <button id="clear-bulk" class="ghost-button small" type="button">選択解除</button>
+        </div>
+        <p class="field-help">クリックで起点を選び、Shift＋クリックで範囲選択。Ctrl＋クリックで個別に追加・解除できます。選択したカードはお気に入り・カテゴリの一括編集や削除に使えます。空欄の項目は変更しません。</p>
+        <form id="bulk-form" class="bulk-form">
+          <label class="field-label" for="bulk-category">
+            カテゴリ
+            <select id="bulk-category" class="select-input">
+              <option value="__keep__">変更しない</option>
+              <option value="uncategorized">未分類にする</option>
+            </select>
+            <input id="bulk-category-custom" class="text-input" type="text" list="category-suggestions" placeholder="新しいカテゴリ名を入れるとこちらを優先">
+          </label>
+
+          <label class="field-label" for="bulk-favorite">
+            お気に入り
+            <select id="bulk-favorite" class="select-input">
+              <option value="__keep__">変更しない</option>
+              <option value="true">お気に入りにする</option>
+              <option value="false">お気に入りから外す</option>
+            </select>
+          </label>
+
+          <button class="primary-button" type="submit">選択中に適用</button>
+        </form>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <p class="panel-kicker">Status</p>
+            <h2>ライブラリ状況</h2>
+          </div>
+          <span id="last-scan" class="meta-pill">未スキャン</span>
+        </div>
+        <div id="stats-grid" class="stats-grid"></div>
+        <div id="warning-list" class="warning-list"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <p class="panel-kicker">Watch Folders</p>
+            <h2>登録フォルダ</h2>
+          </div>
+          <span id="folder-count" class="meta-pill">0件</span>
+        </div>
+        <div class="folder-input-row">
+          <input id="folder-input" class="text-input mono" type="text" placeholder="例: D:\StableDiffusion\models\Lora">
+          <button id="pick-folder" class="ghost-button" type="button">参照して追加</button>
+        </div>
+        <div class="folder-action-row">
+          <button id="add-folder" class="ghost-button small" type="button">入力を追加</button>
+          <button id="clear-folders" class="ghost-button small danger-button" type="button">全部外す</button>
+        </div>
+        <div id="folder-drop-zone" class="folder-drop-zone" tabindex="0" role="button" aria-label="フォルダをドラッグアンドドロップで追加">
+          <strong>ここへフォルダをドラッグ＆ドロップ</strong>
+          <p id="folder-drop-hint" class="field-help">Explorer からフォルダを落とすと、そのまま登録に追加します。</p>
+        </div>
+        <p class="field-help">登録済みフォルダは下に並びます。参照して追加でも、パスを直接貼って Enter でも、ドラッグ＆ドロップでも追加できます。</p>
+        <div class="subhead-row">
+          <strong>登録済みフォルダ</strong>
+          <span class="subhead-copy">ここだけをスキャンします</span>
+        </div>
+        <ul id="watch-dir-list" class="watch-dir-list"></ul>
+      </section>
+
+    </aside>
+
+    <section class="library-column">
+      <div class="library-toolbar">
+        <div>
+          <p id="result-count" class="toolbar-count">0件</p>
+          <p id="status-line" class="toolbar-copy">フォルダを登録するとライブラリを読み込めます。</p>
+        </div>
+        <div class="library-toolbar-actions">
+          <span id="visible-count" class="meta-pill">0件表示</span>
+          <span id="selection-count" class="meta-pill" aria-live="polite">0件選択中</span>
+          <button id="delete-bulk" class="ghost-button small danger-button" type="button" disabled>選択したファイルを削除</button>
+          <button id="clear-selection" class="ghost-button small" type="button">選択解除</button>
+        </div>
+      </div>
+      <section id="reference-panel" class="panel reference-panel" hidden>
+        <div class="panel-head compact">
+          <div>
+            <p class="panel-kicker">Reference</p>
+            <h2 id="reference-heading">参考画像</h2>
+          </div>
+          <div class="library-toolbar-actions">
+            <span id="reference-count" class="meta-pill">0件</span>
+            <button id="add-reference-images" class="ghost-button small" type="button">参考画像/動画を追加</button>
+          </div>
+        </div>
+        <p id="reference-status" class="field-help">LoRA を選ぶと参考画像をここに出します。</p>
+        <div id="reference-drop-zone" class="reference-drop-zone" tabindex="0" role="button" aria-label="参考画像をドラッグアンドドロップで追加">
+          <strong>ここへ参考画像をドラッグ＆ドロップ</strong>
+          <p id="reference-drop-hint" class="field-help">フォルダから画像や動画を落とすか、クリックして追加できます。</p>
+        </div>
+        <div id="reference-grid" class="reference-grid"></div>
+        <input id="reference-upload-input" type="file" accept="image/*,video/*" multiple hidden>
+      </section>
+      <div id="empty-state" class="empty-state"></div>
+      <div id="library-grid" class="library-grid" aria-live="polite"></div>
+      <div id="load-more-wrap" class="load-more-wrap" hidden>
+        <button id="load-more" class="ghost-button" type="button">もっと表示</button>
+      </div>
+    </section>
+
+    <div
+      id="detail-resizer"
+      class="detail-resizer"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="詳細パネルの幅を調整"
+      tabindex="0"
+    ></div>
+
+    <aside class="detail-column">
+      <section id="detail-panel" class="panel detail-panel">
+        <div id="detail-empty" class="detail-empty">
+          <p class="panel-kicker">Inspector</p>
+          <h2>カードを選ぶと詳細を編集できます</h2>
+          <p>Trigger の整理、生成設定の保存、お気に入り化、タグ付けはここでまとめて行えます。</p>
+        </div>
+
+        <form id="detail-form" class="detail-form" hidden>
+          <div
+            class="detail-preview-shell"
+            id="detail-preview-shell"
+            tabindex="0"
+            role="button"
+            aria-label="サムネイル画像または動画をドロップまたは選択して差し替え"
+          >
+            <img id="detail-preview" alt="LoRA preview">
+            <video id="detail-preview-video" muted loop autoplay playsinline hidden></video>
+            <div class="preview-fallback large">
+              <span class="preview-mark">LoRA</span>
+              <span id="detail-preview-name" class="preview-name"></span>
+            </div>
+          </div>
+          <div class="detail-preview-actions">
+            <button id="replace-preview" class="ghost-button small" type="button">サムネを差し替え</button>
+            <button id="delete-preview" class="ghost-button small danger-button" type="button">サムネを削除</button>
+            <input id="preview-upload-input" type="file" accept="image/*,video/*" hidden>
+          </div>
+
+          <div class="detail-topline">
+            <div>
+              <p id="detail-file-name" class="detail-file-name"></p>
+              <h2 id="detail-heading" class="detail-heading"></h2>
+            </div>
+            <label class="favorite-toggle" for="detail-favorite">
+              <input id="detail-favorite" type="checkbox">
+              お気に入り
+            </label>
+          </div>
+
+          <p id="detail-relative-path" class="detail-relative-path mono"></p>
+          <div id="detail-badges" class="badge-row"></div>
+
+          <div class="form-grid">
+            <label class="field-label" for="detail-display-name">
+              表示名
+              <input id="detail-display-name" class="text-input" type="text">
+            </label>
+
+            <label class="field-label" for="detail-category">
+              カテゴリ
+              <select id="detail-category" class="select-input"></select>
+              <input id="detail-category-custom" class="text-input" type="text" list="category-suggestions" placeholder="新しいカテゴリ名も入力できます">
+            </label>
+
+            <fieldset id="detail-generation-settings" class="checkpoint-settings" hidden>
+              <legend>おすすめの生成設定</legend>
+              <label class="field-label" for="detail-recommended-steps">
+                Step
+                <input id="detail-recommended-steps" class="text-input" type="text" placeholder="例: 20〜30 / 高品質なら40">
+              </label>
+              <label class="field-label" for="detail-recommended-sampler">
+                サンプリング（Sampler）
+                <input id="detail-recommended-sampler" class="text-input" type="text" placeholder="例: Euler a / DPM++ 2M">
+              </label>
+              <label class="field-label" for="detail-recommended-scheduler">
+                スケジューラー（Scheduler）
+                <input id="detail-recommended-scheduler" class="text-input" type="text" placeholder="例: Karras / Normal">
+              </label>
+              <p id="forge-preset-summary" class="field-help" hidden></p>
+            </fieldset>
+
+            <label class="field-label full" for="detail-triggers">
+              Trigger
+              <textarea id="detail-triggers" class="text-area" rows="7" placeholder="例: miku_school, blue tie, short hair"></textarea>
+            </label>
+
+            <label class="field-label full" for="detail-tags">
+              タグ
+              <input id="detail-tags" class="text-input" type="text" placeholder="例: character, school, clean-line">
+            </label>
+
+            <div class="field-label full">
+              入手元 URL
+              <input id="detail-source-url" class="text-input mono" type="url" hidden>
+              <a id="detail-source-link" class="ghost-button small source-link-button" href="#" target="_blank" rel="noreferrer" hidden>元ページを開く</a>
+              <span id="detail-source-link-empty" class="field-help">URL はまだありません。</span>
+            </div>
+
+            <label class="field-label full" for="detail-notes">
+              メモ
+              <textarea id="detail-notes" class="text-area notes" rows="10" placeholder="顔強め、制服固定、横顔やや崩れやすい"></textarea>
+            </label>
+          </div>
+
+          <section class="prompt-panel">
+            <div class="panel-head compact">
+              <div>
+                <p class="panel-kicker">Prompt Snippet</p>
+                <h3>コピーされる形</h3>
+              </div>
+            </div>
+            <code id="detail-prompt-preview" class="prompt-code"></code>
+          </section>
+
+          <div class="detail-meta">
+            <p id="detail-meta-line" class="meta-line"></p>
+            <p id="detail-source-description" class="source-description"></p>
+          </div>
+
+          <div class="detail-actions">
+            <button id="forge-send" class="ghost-button" type="button">Forgeへ送る</button>
+            <button id="forge-save-current" class="ghost-button" type="button">Forgeの設定を保存</button>
+            <button class="primary-button" type="submit">保存</button>
+            <button id="copy-prompt" class="ghost-button" type="button">プロンプトをコピー</button>
+            <button id="open-folder" class="ghost-button" type="button">Explorer で開く</button>
+            <button id="delete-item" class="ghost-button danger-button" type="button">削除</button>
+          </div>
+        </form>
+      </section>
+    </aside>
+  </main>
+
+  <datalist id="category-suggestions"></datalist>
+  <div id="reference-viewer" class="reference-viewer" hidden aria-hidden="true">
+    <div id="reference-viewer-backdrop" class="reference-viewer-backdrop" data-reference-viewer-close></div>
+    <section class="reference-viewer-shell" role="dialog" aria-modal="true" aria-labelledby="reference-viewer-title">
+      <div class="reference-viewer-stage">
+        <img id="reference-viewer-image" alt="参考画像プレビュー">
+        <video id="reference-viewer-video" controls loop muted playsinline hidden></video>
+      </div>
+
+      <aside class="reference-viewer-sidebar">
+        <div class="reference-viewer-topline">
+          <div>
+            <p class="panel-kicker">Reference Viewer</p>
+            <h2 id="reference-viewer-title">参考画像</h2>
+          </div>
+          <button id="reference-viewer-close" class="ghost-button small" type="button">閉じる</button>
+        </div>
+
+        <p id="reference-viewer-subtitle" class="reference-viewer-subtitle"></p>
+        <div id="reference-viewer-badges" class="badge-row"></div>
+        <div id="reference-viewer-meta-grid" class="reference-viewer-meta-grid"></div>
+        <p id="reference-viewer-description" class="reference-viewer-description"></p>
+
+        <div id="reference-viewer-sections" class="reference-viewer-sections"></div>
+
+        <div class="reference-viewer-actions">
+          <button id="reference-copy-prompt" class="ghost-button small" type="button">Prompt をコピー</button>
+          <button id="reference-copy-negative" class="ghost-button small" type="button">Negative をコピー</button>
+          <button id="reference-copy-all" class="ghost-button small" type="button">まとめてコピー</button>
+          <button id="reference-send-encyclopedia" class="ghost-button small accent" type="button" title="百科事典に追加 (E)">📚 百科事典に追加 (E)</button>
+          <a id="reference-open-image" class="ghost-button small" href="#" target="_blank" rel="noreferrer">元メディアを開く</a>
+          <a id="reference-open-source" class="ghost-button small" href="#" target="_blank" rel="noreferrer">元ページを開く</a>
+        </div>
+      </aside>
+    </section>
+  </div>
+  <div id="toast" class="toast" aria-live="polite"></div>
+
+  <dialog id="forge-dialog" class="forge-dialog">
+    <form id="forge-send-form">
+      <h2 id="forge-dialog-title">Forgeへ送る</h2>
+      <p id="forge-send-description" class="field-help"></p>
+      <div id="forge-settings-fields" class="form-grid">
+        <label class="field-label">Step<input id="forge-steps" class="text-input" type="number" min="1" max="150" required></label>
+        <label class="field-label">Sampler<select id="forge-sampler" class="select-input" required></select></label>
+        <label class="field-label">Scheduler<select id="forge-scheduler" class="select-input" required></select></label>
+        <label class="field-label">CFG<input id="forge-cfg" class="text-input" type="number" min="1" max="24" step="0.01" required></label>
+        <label class="field-label">幅<input id="forge-width" class="text-input" type="number" min="64" max="2048" step="8" required></label>
+        <label class="field-label">高さ<input id="forge-height" class="text-input" type="number" min="64" max="2048" step="8" required></label>
+        <label class="field-label">Seed<input id="forge-seed" class="text-input" type="number" min="-1" step="1" required></label>
+        <label class="field-label full">Prompt<textarea id="forge-prompt" class="text-area" rows="3"></textarea></label>
+        <label class="field-label full">Negative Prompt<textarea id="forge-negative-prompt" class="text-area" rows="3"></textarea></label>
+        <label class="favorite-toggle full"><input id="forge-restore-all" type="checkbox">保存した設定一式を復元（高解像度化・Refiner・拡張設定など）</label>
+        <label class="favorite-toggle full"><input id="forge-restore-modules" type="checkbox">VAE／エンコーダーの選択を反映</label>
+        <label class="field-label full">外部VAE／エンコーダー（未選択なら追加なし）<select id="forge-modules" class="select-input" multiple size="4"></select></label>
+        <button id="forge-clear-modules" class="ghost-button small" type="button">追加なしにする（内蔵を使用）</button>
+      </div>
+      <div class="detail-actions"><button id="forge-confirm-send" class="primary-button" type="submit">送信して反映</button><button id="forge-dialog-cancel" class="ghost-button" type="button">キャンセル</button></div>
+    </form>
+  </dialog>
+
+<script src="/static/lora/lora.js?v=20261002-forge-link-2"></script>
+<script src="/static/lora/forge.js?v=20261002-forge-link-2"></script>
+</body>
+</html>

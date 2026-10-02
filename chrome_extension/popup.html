@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LoRA Manager Bridge</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main class="popup-shell">
+    <header>
+      <p class="eyebrow">LoRA Manager Bridge <span>0.5.4</span></p>
+      <h1>ページ情報を LoRA管理 に送る</h1>
+    </header>
+
+    <label class="field">
+      <span>LoRA管理 URL</span>
+      <input id="base-url" type="url" value="http://127.0.0.1:8787" spellcheck="false">
+    </label>
+
+    <div class="actions">
+      <button id="open-app" class="primary" type="button">LoRA管理を開く / 起動</button>
+      <button id="refresh-page" type="button">再取得</button>
+    </div>
+
+    <section class="panel">
+      <button id="recover-downloads" class="wide" type="button">ダウンロードフォルダーを調査・登録</button>
+      <p class="description">Civitaiのダウンロード完了後は自動で登録・移動します。LoRA管理が停止中なら起動後に再試行します。このボタンは過去のファイルをまとめて調査するときに使えます。</p>
+      <p id="recovery-status" class="status" aria-live="polite">未完了・取り込み済み・判定できないファイルは移動しません。処理はこの画面を閉じても続きます。</p>
+      <ul id="recovery-results" class="recovery-results"></ul>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>取得プレビュー</h2>
+        <span id="host-pill" class="pill">-</span>
+      </div>
+      <p id="page-title" class="title">ページ未取得</p>
+      <p id="page-url" class="mono">-</p>
+      <p id="page-description" class="description">description なし</p>
+      <div id="badge-row" class="badge-row"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>ダウンロード一体化</h2>
+        <span id="download-pill" class="pill">0件</span>
+      </div>
+
+      <label class="field">
+        <span>ダウンロード候補</span>
+        <select id="download-select"></select>
+      </label>
+
+      <label class="field">
+        <span>保存先</span>
+        <select id="folder-select"></select>
+      </label>
+
+      <p id="download-note" class="description">候補URLが見つかると、そのままダウンロードして反映できます。</p>
+    </section>
+
+    <div class="button-stack">
+      <button id="download-import" class="primary wide" type="button">ダウンロードして反映</button>
+      <button id="cancel-pending" class="wide" type="button" hidden>待機を解除</button>
+      <button id="send-import" class="wide" type="button">ページ情報だけ送る</button>
+    </div>
+    <p id="job-line" class="status">自動ダウンロードはまだ実行していません。</p>
+    <p id="status-line" class="status">アクティブなページを読み取ります。</p>
+  </main>
+
+  <script src="page_metadata.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

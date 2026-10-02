@@ -1,0 +1,16 @@
+/data/
+__pycache__/
+*.py[cod]
+*.log
+*.sqlite3*
+*.db
+/.venv/
+/venv/
+/node_modules/
+/tmp*/
+/test-results/
+/playwright-report/
+/.env
+/.env.*
+/connection.json
+/bridge-error.log

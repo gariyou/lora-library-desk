@@ -1,0 +1,106 @@
+const {chromium} = require('playwright');
+const {spawn} = require('node:child_process');
+const fs = require('node:fs');
+const path = require('node:path');
+const assert = require('node:assert/strict');
+const app = process.argv[2] || path.resolve(__dirname,'..');
+const proc = spawn(process.env.PYTHON || 'python', ['-X','utf8',path.join(__dirname,'lora-selection-e2e-server.py'),app], {windowsHide:true});
+let browser;
+(async()=>{
+  const info = await new Promise((resolve,reject)=>{let buf=''; proc.stdout.on('data', b=>{buf+=b; if(buf.includes('\n')) resolve(JSON.parse(buf.split('\n')[0]));}); proc.on('error',reject); proc.stderr.on('data',b=>process.stderr.write(b));});
+  const base = `http://127.0.0.1:${info.port}`;
+  browser = await chromium.launch({headless:true});
+  const page = await browser.newPage({viewport:{width:1500,height:1000}});
+  const errors=[]; page.on('pageerror',e=>errors.push(e.message));
+  const cards=page.locator('#library-grid button[data-path]');
+  const selected=page.locator('#library-grid .bulk-selected');
+  const settle=()=>page.waitForFunction(()=>document.querySelectorAll('#library-grid button[data-path]').length===getVisibleItems().length);
+  const count=async n=>{await page.waitForFunction(n=>document.querySelectorAll('#library-grid .bulk-selected').length===n,n); assert.equal(await selected.count(),n);};
+  await page.goto(base+'/lora');
+  await page.waitForFunction(()=>document.querySelectorAll('#library-grid button[data-path]').length===7);
+  await page.selectOption('#sort-select','name'); await settle();
+  // Before/after comparison using the original scripts against the same isolated server.
+  if(fs.existsSync(path.join(__dirname,'lora-multiselect-backup/lora.js'))) {
+  const baseline = await browser.newPage({viewport:{width:1500,height:1000}});
+  await baseline.route('**/static/lora/lora.js*', r=>r.fulfill({contentType:'text/javascript',body:fs.readFileSync(path.join(__dirname,'lora-multiselect-backup/lora.js'),'utf8')}));
+  await baseline.goto(base+'/lora');
+  await baseline.waitForFunction(()=>document.querySelectorAll('#library-grid button[data-path]').length===7);
+  await baseline.selectOption('#sort-select','name');
+  const bc=baseline.locator('#library-grid button[data-path]');
+  await bc.nth(0).click(); await bc.nth(3).click({modifiers:['Shift']});
+  assert.equal(await baseline.locator('.lora-card.bulk-selected').count(),1);
+  console.log('BASELINE: click first then Shift+fourth selected only 1 card'); await baseline.close();
+  }
+  await cards.nth(0).click(); await settle(); await count(1);
+  await cards.nth(0).click({modifiers:['Control']}); await count(0);
+  await cards.nth(1).click({modifiers:['Control']}); await count(1);
+  assert.match(await selected.textContent(),/Beta/);
+  console.log('PASS single selection and Ctrl deselect do not resurrect previous selections');
+
+  await cards.nth(0).click(); await settle(); await cards.nth(3).click({modifiers:['Shift']}); await count(4);
+  assert.equal(await cards.nth(3).evaluate(el=>document.activeElement===el),true);
+  await cards.nth(1).click({modifiers:['Shift']}); await count(2);
+  await cards.nth(5).click({modifiers:['Control']}); await count(3);
+  await cards.nth(1).click({modifiers:['Control']}); await count(2);
+  await cards.nth(3).click({modifiers:['Control','Shift']}); await count(5);
+  console.log('PASS forward/reverse range, shrink range, Ctrl toggle, Ctrl+Shift additive, focus retained');
+  await page.click('#clear-bulk'); await count(0);
+  await cards.nth(2).click({modifiers:['Shift']}); await count(1);
+  await page.fill('#search-input','Zeta'); await page.waitForFunction(()=>getVisibleItems().length===1); await settle();
+  assert.match(await page.locator('#selection-count').textContent(),/表示外 1件/);
+  await cards.nth(0).click({modifiers:['Shift']}); await count(1);
+  assert.match(await selected.textContent(),/Zeta/);
+  await page.fill('#search-input',''); await page.waitForFunction(()=>getVisibleItems().length===7); await settle();
+  console.log('PASS filtering invalidates hidden range anchor; hidden selected count is explicit');
+
+  await page.click('#clear-bulk');
+  await cards.nth(0).click(); await settle(); await cards.nth(2).click({modifiers:['Shift']}); await count(3);
+  await page.selectOption('#bulk-favorite','true');
+  await page.click('#bulk-form button[type="submit"]');
+  await page.waitForFunction(()=>state.items.filter(i=>i.favorite).length===3);
+  assert.equal(await page.locator('.lora-card .badge').filter({hasText:/^Favorite$/}).count(),3);
+  console.log('PASS same selection applies favorite metadata to 3 real fixture records');
+  let deleteCalls=0;
+  page.on('request',r=>{if(r.url().endsWith('/api/lora/delete')) deleteCalls++;});
+  page.once('dialog',d=>{assert.match(d.message(),/3件の元ファイル/);d.dismiss();});
+  await page.click('#delete-bulk'); await count(3); assert.equal(deleteCalls,0);
+  console.log('PASS cancellation sends no delete request');
+  await page.locator('#detail-notes').fill('delete key stays inside editor');
+  await page.locator('#detail-notes').press('Delete'); assert.equal(deleteCalls,0);
+  // Partial failure: one request fails; two use the real deletion API and filesystem.
+  const initialPaths=await selected.evaluateAll(es=>es.map(e=>e.dataset.path));
+  await page.route('**/api/lora/delete',async route=>{
+    if(route.request().postDataJSON().path===initialPaths[1]) return route.fulfill({status:500,json:{error:'fixture locked'}});
+    await new Promise(r=>setTimeout(r,150)); return route.continue();
+  });
+  const dialogs=[]; page.on('dialog',async d=>{dialogs.push(d.message()); await d.accept();});
+  await page.click('#delete-bulk');
+  await page.waitForFunction(()=>state.deletingItems);
+  assert.equal(await page.locator('#delete-bulk').isDisabled(),true);
+  await page.evaluate(()=>deleteSelectedItems());
+  await page.waitForFunction(()=>!state.deletingItems && state.items.length===5);
+  await count(1);
+  assert.equal(deleteCalls,3);
+  assert.equal(fs.existsSync(initialPaths[0]),false); assert.equal(fs.existsSync(initialPaths[1]),true); assert.equal(fs.existsSync(initialPaths[2]),false);
+  assert.ok(dialogs.some(x=>x.includes('fixture locked')));
+  await page.unroute('**/api/lora/delete');
+  await selected.press('Delete');
+  await page.waitForFunction(()=>!state.deletingItems && state.items.length===4); await count(0);
+  assert.equal(fs.existsSync(initialPaths[1]),false);
+  console.log('PASS partial failure retains only failed card; duplicate request blocked; Delete retries successfully');
+
+  await page.fill('#search-input','Workflow'); await page.waitForFunction(()=>getVisibleItems().length===1); await settle();
+  await page.click('#select-visible'); await count(1);
+  const workflowPath=await selected.getAttribute('data-path');
+  await page.click('#delete-bulk'); await page.waitForFunction(()=>!state.deletingItems && state.items.length===3);
+  assert.equal(fs.existsSync(workflowPath),false);
+  await page.fill('#search-input',''); await page.waitForFunction(()=>getVisibleItems().length===3); await settle();
+  await cards.nth(0).click({modifiers:['Control']}); await cards.nth(0).press('Control+a'); await count(3);
+  await cards.nth(0).press('Escape'); await count(0);
+  await settle();
+  await cards.nth(0).click(); await settle(); await cards.nth(2).click({modifiers:['Shift']}); await count(3);
+  await page.locator('.library-toolbar').scrollIntoViewIfNeeded();
+  await page.screenshot({path:process.env.E2E_SCREENSHOT || path.join(require('node:os').tmpdir(),'lora-multiselect-verified.png'),fullPage:false});
+  assert.deepEqual(errors,[]);
+  console.log('PASS workflow deletion, Ctrl+A, Escape, real file removal, no page errors; screenshot saved');
+})().catch(e=>{console.error(e);process.exitCode=1;}).finally(async()=>{if(browser)await browser.close();proc.stdin.end('\n');});
