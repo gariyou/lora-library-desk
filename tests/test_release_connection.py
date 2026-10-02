@@ -1,5 +1,6 @@
 import ast
 import importlib.util
+import io
 import json
 import tempfile
 import threading
@@ -33,6 +34,30 @@ class LoopbackURLTests(unittest.TestCase):
                       'http://localhost:7860/api', 'http://localhost:7860?x=1', 'http://localhost:7860#x']:
             with self.subTest(value=value), self.assertRaises(ValueError):
                 connector.normalize_forge_url(value)
+
+
+class DownloadCookieTests(unittest.TestCase):
+    def test_cookie_sent_initially_but_dropped_on_redirect(self):
+        class Response(io.BytesIO):
+            headers = {'Content-Type':'application/octet-stream'}
+            def geturl(self): return 'https://civitai.com/model.safetensors'
+        def opener(request, **kwargs):
+            self.assertEqual(request.get_header('Cookie'), 'session=fixture')
+            redirect = urllib.request.HTTPRedirectHandler()
+            for target in ['https://civitai.com/other', 'https://cdn.example.test/model.safetensors']:
+                new = redirect.redirect_request(request, None, 302, 'Found', {}, target)
+                self.assertIsNone(new.get_header('Cookie'))
+            return Response(b'fixture model bytes')
+        with tempfile.TemporaryDirectory() as temp, patch.object(server, 'DATA_ROOT', Path(temp)), patch.object(server.urllib.request, 'urlopen', side_effect=opener):
+            path = server.download_remote_model_to_temp_file('https://civitai.com/model.safetensors', cookie_header='session=fixture')
+            self.assertEqual(path.read_bytes(), b'fixture model bytes')
+
+    def test_cookie_never_sent_to_non_civitai_or_plain_http(self):
+        with patch.object(server.urllib.request, 'urlopen') as opener:
+            for url in ['https://example.com/a', 'http://civitai.com/a', 'https://user@civitai.com/a']:
+                with self.subTest(url=url), self.assertRaises(ValueError):
+                    server.download_remote_model_to_temp_file(url, cookie_header='session=fixture')
+            opener.assert_not_called()
 
 
 class ConnectionHTTPTests(unittest.TestCase):

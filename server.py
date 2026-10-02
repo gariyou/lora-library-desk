@@ -4410,10 +4410,13 @@ def download_remote_model_to_temp_file(
     }
     if referer_url:
         headers["Referer"] = referer_url
-    if cookie_header:
-        headers["Cookie"] = cookie_header
-
     request = urllib.request.Request(normalized_url, headers=headers)
+    if cookie_header:
+        if (parsed.scheme != "https" or not is_civitai_page_host(parsed.hostname or "")
+                or parsed.username is not None or parsed.password is not None):
+            raise ValueError("認証Cookieを送信できるのはHTTPSのCivitai取得先だけです。")
+        # urllib's redirect handler omits unredirected_headers from new requests.
+        request.add_unredirected_header("Cookie", cookie_header)
     temp_dir = DATA_ROOT / "_bridge_downloads"
     temp_dir.mkdir(parents=True, exist_ok=True)
 

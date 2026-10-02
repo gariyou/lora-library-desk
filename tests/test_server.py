@@ -1641,7 +1641,7 @@ class LoRAManagerServerTests(unittest.TestCase):
                 return False
 
         def fake_urlopen(request, timeout=0):
-            seen_headers["Cookie"] = request.headers.get("Cookie")
+            seen_headers["Cookie"] = request.get_header("Cookie")
             seen_headers["Referer"] = request.headers.get("Referer")
             return FakeResponse()
 
