@@ -58,3 +58,27 @@ jobs:
           node-version: 22
       - name: Extension tests
         run: node --test tests/test_auto_wait.cjs tests/test_auto_recovery.cjs tests/test_download_completion.cjs
+
+  forge-bridge-sync:
+    name: forge_bridge/ matches the bridge repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: gariyou/sd-forge-library-desk-bridge
+          path: upstream-bridge
+      - name: Compare bundled copy
+        run: |
+          status=0
+          for f in bridge_core.py local_connection.py style.css javascript/library_desk.js scripts/library_desk_bridge.py; do
+            if ! diff -u "upstream-bridge/$f" "forge_bridge/$f"; then
+              echo "::error file=forge_bridge/$f::forge_bridge/$f differs from gariyou/sd-forge-library-desk-bridge"
+              status=1
+            fi
+          done
+          if ! diff -u forge_bridge/local_connection.py local_connection.py; then
+            echo "::error file=local_connection.py::local_connection.py differs from forge_bridge/local_connection.py"
+            status=1
+          fi
+          exit $status

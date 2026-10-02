@@ -283,6 +283,9 @@ def ui_tab():
                 capture = gr.Button("接続を更新", elem_id="library_desk_capture")
             status = gr.Markdown("Forge画面を読み込み中です。", elem_id="library_desk_status")
         controls.update(capture=capture, receive=receive, save=save, status=status)
+    # Some Forge versions create the header controls before this tab.
+    if len(headers) == 4 and not events_bound:
+        bind_events()
     return [(tab, "Library Desk", "library_desk")]
 
 
@@ -320,7 +323,10 @@ def check_local(request):
                         and (parsed_origin.port or 80) in allowed_ports)
     except ValueError:
         valid_origin = False
-    if host not in {"127.0.0.1", "::1"} or (origin and not valid_origin):
+    # A DNS-rebound page is same-origin, so it sends no Origin on GET; the
+    # Host header still carries the attacker's name and must be rejected.
+    if (host not in {"127.0.0.1", "::1"} or (origin and not valid_origin)
+            or not local.is_loopback_host_header(request.headers.get("host", ""))):
         raise HTTPException(403, "この連携はPC内からのみ利用できます。")
 
 
