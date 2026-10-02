@@ -1,0 +1,87 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Python ${{ matrix.python }} / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+        python: ["3.10", "3.14"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Unit tests
+        shell: bash
+        env:
+          PYTHONUTF8: "1"
+          # The default Windows TEMP uses an 8.3 short name (RUNNER~1), which
+          # the app resolves to the long name and breaks path comparisons.
+          TMP: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
+        run: |
+          set -o pipefail
+          python -m unittest discover -s tests -p "test_*.py" 2>&1 | tee test-output.txt
+      - name: Report failures as annotations
+        if: failure()
+        shell: bash
+        env:
+          PYTHONUTF8: "1"
+        run: |
+          python - <<'PY'
+          text = open("test-output.txt", encoding="utf-8", errors="replace").read()
+          blocks = [b.strip() for b in text.split("=" * 70) if b.strip().startswith(("FAIL:", "ERROR:"))]
+          for block in blocks[:10]:
+              body = block[:4000].replace("%", "%25").replace("\r", "").replace("\n", "%0A")
+              print(f"::error title=unittest::{body}")
+          PY
+
+  extension:
+    name: Chrome extension (Node)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Extension tests
+        run: node --test tests/test_auto_wait.cjs tests/test_auto_recovery.cjs tests/test_download_completion.cjs
+
+  forge-bridge-sync:
+    name: forge_bridge/ matches the bridge repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: gariyou/sd-forge-library-desk-bridge
+          # Keep the comparison reproducible while bridge changes are reviewed separately.
+          # Update this revision together with forge_bridge/ when syncing a new version.
+          ref: 919d78b2ad92a0cdca2ad6cebb78f5352d59771f
+          path: upstream-bridge
+      - name: Compare bundled copy
+        run: |
+          status=0
+          for f in bridge_core.py local_connection.py style.css javascript/library_desk.js scripts/library_desk_bridge.py; do
+            if ! diff -u "upstream-bridge/$f" "forge_bridge/$f"; then
+              echo "::error file=forge_bridge/$f::forge_bridge/$f differs from gariyou/sd-forge-library-desk-bridge"
+              status=1
+            fi
+          done
+          if ! diff -u forge_bridge/local_connection.py local_connection.py; then
+            echo "::error file=local_connection.py::local_connection.py differs from forge_bridge/local_connection.py"
+            status=1
+          fi
+          exit $status

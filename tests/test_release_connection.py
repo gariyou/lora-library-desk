@@ -120,8 +120,8 @@ class ForgeOriginTests(unittest.TestCase):
                           'urlparse': urlparse, 'HTTPException': HTTPError}
         exec(compile(selected, '<forge connection checks>', 'exec'), self.namespace)
 
-    def request(self, origin, host='127.0.0.1'):
-        return SimpleNamespace(client=SimpleNamespace(host=host), headers={'origin': origin}, url=SimpleNamespace(port=18860))
+    def request(self, origin, host='127.0.0.1', host_header='127.0.0.1:18860'):
+        return SimpleNamespace(client=SimpleNamespace(host=host), headers={'origin': origin, 'host': host_header}, url=SimpleNamespace(port=18860))
 
     def test_configured_ports_and_aliases_allowed(self):
         for origin in ['', 'http://localhost:18860', 'http://127.0.0.1:18878', 'http://[::1]:18860']:
@@ -133,5 +133,9 @@ class ForgeOriginTests(unittest.TestCase):
                              ('http://user@localhost:18860', '127.0.0.1'), ('', '192.0.2.1')]:
             with self.subTest(origin=origin, host=host), self.assertRaises(self.error):
                 self.namespace['check_local'](self.request(origin, host))
+        # DNS rebinding: same-origin GET carries no Origin but a foreign Host.
+        for host_header in ['evil.example:18860', '', '192.0.2.1:18860']:
+            with self.subTest(host_header=host_header), self.assertRaises(self.error):
+                self.namespace['check_local'](self.request('', host_header=host_header))
         self.opts.data['library_desk_url'] = 'http://example.com:18878'
         with self.assertRaises(ValueError): self.namespace['library_url']()
