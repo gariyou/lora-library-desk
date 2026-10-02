@@ -4,7 +4,7 @@
 
 Local LoRA/checkpoint library with a Chrome download bridge and per-model Forge Neo generation settings.
 
-**Windows向け試用版 / 0.1.0-alpha.1 / MIT**
+**Windows向け試用版 / 0.1.0-alpha.2 / MIT**
 
 LoRA・チェックポイント・Embedding・ComfyUI Workflowを、プレビュー・Trigger・カテゴリ・星評価・メモで整理するローカルアプリです。モデルのフォルダを登録して使います。
 

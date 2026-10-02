@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.0-alpha.2 — 2026-10-03
 
 Security hardening.
 
@@ -11,6 +11,8 @@ Security hardening.
 - Add GitHub Actions workflow running the Python and Node test suites.
 - Sync `forge_bridge/` with gariyou/sd-forge-library-desk-bridge: the Forge routes now reject non-loopback Host headers, and button binding no longer depends on component creation order. CI checks that the bundled copy matches the pinned bridge revision, so separate pull requests and later upstream changes do not break the comparison.
 - Fix startup on Python 3.10/3.11 (the documented minimum): remove backslashes inside f-string expressions and replace `hashlib.file_digest` (3.11+).
+
+- Verify the updated bridge in real Windows Chrome/Forge Neo, including all-setting save/persistence/restore, Host rejection, and a local download imported by the fixed-ID extension. Update the public validation record and extension popup version label.
 
 ## 0.1.0-alpha.1 — 2026-10-02
 
