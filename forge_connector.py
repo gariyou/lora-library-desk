@@ -1,5 +1,6 @@
 """Local Forge Neo connection. No generation or file transfer endpoints."""
 import json
+import re
 import importlib.util
 import urllib.error
 import urllib.request
@@ -145,3 +146,69 @@ def queue_library_item(item, settings):
     else:
         raise ValueError("送信できるのはチェックポイントとLoRAです。")
     return forge_request("/library-desk/command", payload)
+
+
+def reference_settings(reference, catalog):
+    """Use only recorded txt2img fields, reporting incompatible metadata."""
+    settings, warnings = {}, []
+    for key in ("prompt", "negative_prompt"):
+        if reference.get(key) or (key == "negative_prompt" and reference.get("prompt")):
+            settings.update(normalize_generation_settings({key: reference.get(key) or ""}))
+    for key in ("steps", "cfg_scale", "seed", "width", "height"):
+        raw = reference.get(key)
+        if raw is None or raw == "":
+            continue
+        try:
+            if isinstance(raw, bool):
+                raise ValueError()
+            number = float(raw)
+            settings.update(normalize_generation_settings({key: number}))
+        except (ValueError, TypeError, OverflowError):
+            label = {"steps": "Step", "cfg_scale": "CFG", "seed": "Seed", "width": "幅", "height": "高さ"}[key]
+            warnings.append(f"{label}は対応範囲外のため反映していません。")
+
+    def choice(value, choices):
+        normalized = re.sub(r"[\s_]+", " ", str(value)).strip().casefold()
+        return next((v for v in choices if re.sub(r"[\s_]+", " ", v).strip().casefold() == normalized), None)
+
+    sampler = str(reference.get("sampler") or "").strip()
+    scheduler = str(reference.get("scheduler") or "").strip()
+    if sampler:
+        selected = choice(sampler, catalog.get("samplers", []))
+        if selected is None:
+            for name in sorted(catalog.get("schedulers", []), key=len, reverse=True):
+                suffix = " " + name
+                if sampler.casefold().endswith(suffix.casefold()):
+                    selected = choice(sampler[:-len(suffix)], catalog.get("samplers", []))
+                    if selected:
+                        scheduler = scheduler or name
+                        break
+        if selected:
+            settings["sampler"] = selected
+        else:
+            warnings.append("SamplerがForgeにないため反映していません。")
+    if scheduler:
+        selected = choice(scheduler, catalog.get("schedulers", []))
+        if selected:
+            settings["scheduler"] = selected
+        else:
+            warnings.append("SchedulerがForgeにないため反映していません。")
+    if not settings:
+        raise ValueError("この画像にはSDへ送れるPromptや生成設定がありません。")
+    return settings, warnings
+
+
+def queue_reference_settings(reference):
+    status = forge_request("/library-desk/status")
+    if status.get("busy"):
+        raise ValueError("Forgeは生成中です。生成が終わってから送信してください。")
+    if not status.get("connected"):
+        raise ValueError("Forgeの画面を開いて再読み込みしてください。")
+    catalog = forge_request("/library-desk/catalog")
+    settings, warnings = reference_settings(reference, catalog)
+    snapshot = fresh_snapshot()
+    model = matching_resource(snapshot.get("checkpoint_path", ""), catalog.get("checkpoints", []))
+    result = forge_request("/library-desk/command", {
+        "mode": "checkpoint", "checkpoint": model["title"], "settings": settings,
+    })
+    return dict(result, applied_fields=list(settings), warnings=warnings)
