@@ -24,9 +24,25 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - name: Unit tests
+        shell: bash
         env:
           PYTHONUTF8: "1"
-        run: python -m unittest discover -s tests -p "test_*.py"
+        run: |
+          set -o pipefail
+          python -m unittest discover -s tests -p "test_*.py" 2>&1 | tee test-output.txt
+      - name: Report failures as annotations
+        if: failure()
+        shell: bash
+        env:
+          PYTHONUTF8: "1"
+        run: |
+          python - <<'PY'
+          text = open("test-output.txt", encoding="utf-8", errors="replace").read()
+          blocks = [b.strip() for b in text.split("=" * 70) if b.strip().startswith(("FAIL:", "ERROR:"))]
+          for block in blocks[:10]:
+              body = block[:4000].replace("%", "%25").replace("\r", "").replace("\n", "%0A")
+              print(f"::error title=unittest::{body}")
+          PY
 
   extension:
     name: Chrome extension (Node)
