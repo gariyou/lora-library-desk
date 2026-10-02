@@ -2436,7 +2436,7 @@ def parse_a1111_parameters(raw_text: str, metadata_source: str = "png.parameters
 
     parameter_text = ""
     if "\nSteps:" in text:
-        parameter_text = f"Steps:{text.split('\nSteps:', 1)[1]}"
+        parameter_text = "Steps:" + text.split("\nSteps:", 1)[1]
     elif text.startswith("Steps:"):
         parameter_text = text
 
@@ -2493,7 +2493,7 @@ def build_reference_prompt_preview(metadata: dict) -> str:
 
     negative_prompt = normalize_multiline_text(metadata.get("negative_prompt"))
     if negative_prompt:
-        return f"Negative: {negative_prompt.replace('\n', ' / ')[:150]}"
+        return "Negative: " + negative_prompt.replace("\n", " / ")[:150]
 
     if normalize_multiline_text(metadata.get("prompt_json")):
         return "ComfyUI prompt metadata"
@@ -4230,8 +4230,7 @@ def resolve_civitai_recovery_metadata(source: Path, record: dict, page_metadata:
                 if isinstance(size_kb, (int, float)) and abs(before.st_size - round(size_kb * 1024)) > 1024:
                     continue
                 if digest is None:
-                    with source.open("rb") as handle:
-                        digest = hashlib.file_digest(handle, "sha256").hexdigest().upper()
+                    digest = sha256_file(source).upper()
                     after = source.stat()
                     if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
                         raise ValueError("照合中にファイルが変更されました。完了後に再実行してください。")
@@ -4910,6 +4909,15 @@ LAN_TOKEN_HEADER = "X-Library-Desk-Token"
 LOOPBACK_HOSTNAMES = {"localhost", "127.0.0.1", "::1"}
 # Files a phone may fetch before it has the token cookie (PWA metadata only).
 LAN_TOKEN_EXEMPT_PATHS = {"/manifest.webmanifest", "/app-icon.svg", "/favicon.ico"}
+
+
+def sha256_file(path: Path, chunk_size: int = 4 * 1024 * 1024) -> str:
+    # hashlib.file_digest needs Python 3.11; keep 3.10 working.
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(chunk_size):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def configured_extension_ids(extra=()) -> frozenset:

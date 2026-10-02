@@ -9,6 +9,7 @@ Security hardening.
 - `--lan` (or any non-loopback `--host`) now requires an access token for clients other than this PC. The token is stored in `data/lan-token.txt`, printed in the startup URL and can be regenerated with `--reset-lan-token`.
 - Reject cross-site API requests that carry no Origin header (e.g. `<img>` tags on other web sites).
 - Add GitHub Actions workflow running the Python and Node test suites.
+- Fix startup on Python 3.10/3.11 (the documented minimum): remove backslashes inside f-string expressions and replace `hashlib.file_digest` (3.11+).
 
 ## 0.1.0-alpha.1 — 2026-10-02
 
