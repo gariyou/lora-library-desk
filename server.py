@@ -1371,6 +1371,9 @@ def build_browser_import_prompt_metadata(payload: dict | None = None) -> dict:
             "base_model": data.get("base_model") or data.get("baseModel"),
             "steps": data.get("steps"),
             "sampler": data.get("sampler"),
+            "scheduler": data.get("scheduler") or data.get("schedule_type"),
+            "width": data.get("width"),
+            "height": data.get("height"),
             "cfg_scale": data.get("cfg_scale") or data.get("cfgScale") or data.get("cfg"),
             "seed": data.get("seed"),
             "resources_used": data.get("resources_used") or data.get("resources"),
@@ -1886,6 +1889,10 @@ def extract_reference_details_from_json_payload(raw_value) -> dict:
             payload["cfg_scale"] = cfg_scale
         if seed and not payload.get("seed"):
             payload["seed"] = seed
+        for key in ("scheduler", "width", "height"):
+            value = normalize_text(candidate.get(key) or (candidate.get("scheduleType") if key == "scheduler" else ""))
+            if value and not payload.get(key):
+                payload[key] = value
 
         resources = candidate.get("resources")
         if not isinstance(resources, list):
@@ -2452,6 +2459,7 @@ def parse_a1111_parameters(raw_text: str, metadata_source: str = "png.parameters
             if key and value and key not in parameter_pairs:
                 parameter_pairs[key] = value
 
+    size_match = re.fullmatch(r"(\d+)\s*[x×]\s*(\d+)", parameter_pairs.get("size", ""), re.IGNORECASE)
     return {
         "metadata_source": normalize_text(metadata_source) or "png.parameters",
         "prompt": normalize_multiline_text(prompt),
@@ -2459,6 +2467,9 @@ def parse_a1111_parameters(raw_text: str, metadata_source: str = "png.parameters
         "raw_parameters": text,
         "steps": normalize_text(parameter_pairs.get("steps")),
         "sampler": normalize_text(parameter_pairs.get("sampler")),
+        "scheduler": normalize_text(parameter_pairs.get("schedule type") or parameter_pairs.get("scheduler")),
+        "width": size_match.group(1) if size_match else "",
+        "height": size_match.group(2) if size_match else "",
         "cfg_scale": normalize_text(parameter_pairs.get("cfg scale") or parameter_pairs.get("cfg")),
         "seed": normalize_text(parameter_pairs.get("seed")),
     }
@@ -2540,6 +2551,9 @@ def has_reference_prompt_details(metadata: dict) -> bool:
             "base_model",
             "steps",
             "sampler",
+            "scheduler",
+            "width",
+            "height",
             "cfg_scale",
             "seed",
         )
@@ -2644,6 +2658,9 @@ def normalize_reference_prompt_metadata(metadata: dict | None) -> dict:
         "resources_used": normalize_reference_resources(payload.get("resources_used") or payload.get("resources")),
         "steps": normalize_text(payload.get("steps")),
         "sampler": normalize_text(payload.get("sampler")),
+        "scheduler": normalize_text(payload.get("scheduler") or payload.get("schedule_type")),
+        "width": normalize_text(payload.get("width")),
+        "height": normalize_text(payload.get("height")),
         "cfg_scale": normalize_text(payload.get("cfg_scale") or payload.get("cfgScale") or payload.get("cfg")),
         "seed": normalize_text(payload.get("seed")),
     }
@@ -2676,6 +2693,9 @@ def normalize_reference_prompt_metadata(metadata: dict | None) -> dict:
             normalized["cfg_scale"] = normalize_text(extracted_details.get("cfg_scale"))
         if extracted_details.get("seed") and not normalized["seed"]:
             normalized["seed"] = normalize_text(extracted_details.get("seed"))
+        for key in ("scheduler", "width", "height"):
+            if extracted_details.get(key) and not normalized[key]:
+                normalized[key] = normalize_text(extracted_details[key])
         merged_resources = normalize_reference_resources(
             extracted_details.get("resources_used") or normalized["resources_used"]
         )
@@ -2686,6 +2706,8 @@ def normalize_reference_prompt_metadata(metadata: dict | None) -> dict:
     normalized["sampler"] = normalize_text(normalized["sampler"] or parsed_generation.get("sampler"))
     normalized["cfg_scale"] = normalize_text(normalized["cfg_scale"] or parsed_generation.get("cfg_scale"))
     normalized["seed"] = normalize_text(normalized["seed"] or parsed_generation.get("seed"))
+    for key in ("scheduler", "width", "height"):
+        normalized[key] = normalize_text(normalized[key] or parsed_generation.get(key))
     if not normalized["source_host"] and normalized["source_url"]:
         normalized["source_host"] = normalize_text(urlparse(normalized["source_url"]).netloc)
     normalized["has_prompt"] = any(
@@ -3038,6 +3060,9 @@ def save_reference_prompt_metadata(image_path: Path, metadata: dict) -> None:
         "base_model": normalized["base_model"],
         "steps": normalized["steps"],
         "sampler": normalized["sampler"],
+        "scheduler": normalized["scheduler"],
+        "width": normalized["width"],
+        "height": normalized["height"],
         "cfg_scale": normalized["cfg_scale"],
         "seed": normalized["seed"],
         "resources_used": normalized["resources_used"],
@@ -3131,6 +3156,9 @@ def build_reference_image_items(model_path: Path) -> list[dict]:
                 "base_model": prompt_meta.get("base_model", ""),
                 "steps": prompt_meta.get("steps", ""),
                 "sampler": prompt_meta.get("sampler", ""),
+                "scheduler": prompt_meta.get("scheduler", ""),
+                "width": prompt_meta.get("width", ""),
+                "height": prompt_meta.get("height", ""),
                 "cfg_scale": prompt_meta.get("cfg_scale", ""),
                 "seed": prompt_meta.get("seed", ""),
                 "resources_used": prompt_meta.get("resources_used", []),
@@ -5322,6 +5350,20 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_api_error(HTTPStatus.NOT_FOUND, "Model file not found")
             item = build_lora_item_snapshot(target)
             return self._send_json(forge_connector.queue_library_item(item, payload.get("settings", {})))
+
+        if parsed.path == "/api/lora/forge/send-reference":
+            watch_dirs = load_lora_config()["watch_dirs"]
+            target = Path(normalize_text(payload.get("path")))
+            reference_path = Path(normalize_text(payload.get("file")))
+            if not is_valid_model_path(target, watch_dirs):
+                return self._send_api_error(HTTPStatus.NOT_FOUND, "Model file not found")
+            if not is_valid_reference_image_path(reference_path, target, watch_dirs):
+                return self._send_api_error(HTTPStatus.NOT_FOUND, "Reference media not found")
+            reference = next((entry for entry in build_reference_image_items(target)
+                              if Path(entry["path"]).resolve() == reference_path.resolve()), None)
+            if reference is None:
+                return self._send_api_error(HTTPStatus.NOT_FOUND, "Reference media not found")
+            return self._send_json(forge_connector.queue_reference_settings(reference))
 
         if parsed.path == "/api/lora/forge/save-current":
             return self._send_json(save_current_forge_settings(normalize_text(payload.get("path"))))

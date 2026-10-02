@@ -158,6 +158,39 @@ async function saveForgeCurrentSettings() {
   }
 }
 
+async function sendReferenceToForge(item, referenceItem) {
+  if (forgeActionRunning) return;
+  forgeActionRunning = true;
+  const button = forgeElement("reference-send-forge");
+  button.disabled = true;
+  button.textContent = "送信中…";
+  updateForgeControls();
+  try {
+    const queued = await fetchJson("/api/lora/forge/send-reference", {
+      method: "POST", body: { path: item.path, file: referenceItem.path },
+    });
+    const deadline = Date.now() + 15000;
+    while (Date.now() < deadline) {
+      await sleep(600);
+      const status = await refreshForgeStatus();
+      if (status.last_result?.id === queued.id) {
+        if (!status.last_result.ok) throw new Error(status.last_result.message);
+        const warnings = (queued.warnings || []).join(" ");
+        showToast("SDへ反映しました。" + (warnings ? " " + warnings : ""), Boolean(warnings));
+        return;
+      }
+    }
+    throw new Error("SDへの反映完了を待っています。Forge画面の連携状態を確認してください。");
+  } catch (error) {
+    showToast(error.message, true);
+  } finally {
+    forgeActionRunning = false;
+    button.textContent = "SDへ送る";
+    renderReferenceViewer();
+    updateForgeControls();
+  }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   forgeElement('forge-connection-form').addEventListener('submit', saveForgeConnection);
   loadForgeConnection().catch(error => showToast(error.message, true));

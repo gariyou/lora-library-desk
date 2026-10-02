@@ -4,6 +4,8 @@
 
 Security hardening.
 
+- Send saved reference-image prompts and recorded txt2img settings to the current Forge checkpoint with one click. Persist recorded dimensions and scheduler in reference metadata; report unsupported fields.
+
 - Reject requests whose Host header is not `localhost`, an IP address or a host given with `--allowed-host` (DNS rebinding protection).
 - Accept `chrome-extension://` origins only from the bundled extension. The extension ID is now fixed by a `key` in its manifest (`cmfddaijajbljjdalpabmocolipfkafj`); extra IDs can be allowed with `--extension-id` or `LIBRARY_DESK_EXTENSION_IDS`. **Remove the old unpacked extension, load it again and re-enter the server URL.**
 - `--lan` (or any non-loopback `--host`) now requires an access token for clients other than this PC. The token is stored in `data/lan-token.txt`, printed in the startup URL and can be regenerated with `--reset-lan-token`.

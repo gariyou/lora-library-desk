@@ -50,6 +50,7 @@ LoRA・チェックポイント・Embedding・ComfyUI Workflowを、プレビュ
 - Forge画面とLibrary Deskを両方開きます。
 - Forgeのtxt2img、Generate下の「現在の設定をLibrary Deskへ保存」で、選択中のチェックポイントに設定を保存します。本体側の「Forgeの設定を保存」でも保存できます。
 - 本体でチェックポイントを選び「Forgeへ送る」で内容を確認して復元します。LoRAではタグとTriggerをPromptへ追加します。
+- 参考画像の詳細で「SDへ送る」を押すと、現在Forgeで選択しているモデルへ、保存されたPrompt・Negative Prompt・Step・Sampler・Scheduler・CFG・Seed・幅・高さをワンクリックで反映します。記録のない項目は現在の設定を使い、未対応の値は通知します。
 - Step、Sampler、Scheduler、CFG、サイズ、Seed、Prompt、Negative Prompt、Hires、Refiner、拡張機能の数値・文字・選択設定、生成関連オプション、外部VAE／エンコーダーをモデル別に保存します。外部モジュールの未選択も保存できます。
 - 画像生成は開始しません。ControlNet等の入力画像そのもの、img2img、実行中ジョブは保存対象外です。拡張構成やモデル／モジュールが異なる場合は復元を拒否します。
 

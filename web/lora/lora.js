@@ -147,6 +147,7 @@ const elements = {
   referenceViewerDescription: document.getElementById("reference-viewer-description"),
   referenceViewerSections: document.getElementById("reference-viewer-sections"),
   referenceCopyPrompt: document.getElementById("reference-copy-prompt"),
+  referenceSendForge: document.getElementById("reference-send-forge"),
   referenceCopyNegative: document.getElementById("reference-copy-negative"),
   referenceCopyAll: document.getElementById("reference-copy-all"),
   referenceSendEncyclopedia: document.getElementById("reference-send-encyclopedia"),
@@ -631,6 +632,12 @@ function bindEvents() {
     await copyReferenceText(referenceItem.prompt, "Prompt をコピーしました。");
   });
 
+  elements.referenceSendForge.addEventListener("click", () => {
+    const item = getSelectedItem();
+    const referenceItem = getSelectedReferenceItem();
+    if (item && referenceItem) sendReferenceToForge(item, referenceItem);
+  });
+
   elements.referenceCopyNegative.addEventListener("click", async () => {
     const referenceItem = getSelectedReferenceItem();
     if (!referenceItem?.negative_prompt) {
@@ -1113,6 +1120,12 @@ function buildReferenceGenerationText(referenceItem) {
   if (referenceItem.sampler) {
     lines.push(`Sampler: ${referenceItem.sampler}`);
   }
+  if (referenceItem.scheduler) {
+    lines.push(`Scheduler: ${referenceItem.scheduler}`);
+  }
+  if (referenceItem.width && referenceItem.height) {
+    lines.push(`Size: ${referenceItem.width} × ${referenceItem.height}`);
+  }
   if (referenceItem.cfg_scale) {
     lines.push(`CFG: ${referenceItem.cfg_scale}`);
   }
@@ -1459,6 +1472,8 @@ function renderReferenceViewer() {
     ["Type", isReferenceVideoItem(referenceItem) ? "Video" : "Image"],
     ["Steps", referenceItem.steps],
     ["Sampler", referenceItem.sampler],
+    ["Scheduler", referenceItem.scheduler],
+    ["Resolution", referenceItem.width && referenceItem.height ? `${referenceItem.width} × ${referenceItem.height}` : ""],
     ["CFG", referenceItem.cfg_scale],
     ["Seed", referenceItem.seed],
     ["Resources", Array.isArray(referenceItem.resources_used) && referenceItem.resources_used.length ? String(referenceItem.resources_used.length) : ""],
@@ -1481,6 +1496,7 @@ function renderReferenceViewer() {
   setViewerActionLink(elements.referenceOpenImage, referenceItem.url);
   setViewerActionLink(elements.referenceOpenSource, referenceItem.source_url);
   elements.referenceCopyPrompt.disabled = !referenceItem.prompt;
+  elements.referenceSendForge.disabled = forgeActionRunning || !["prompt", "negative_prompt", "raw_parameters", "steps", "sampler", "scheduler", "width", "height", "cfg_scale", "seed"].some(key => referenceItem[key]);
   elements.referenceCopyNegative.disabled = !referenceItem.negative_prompt;
   elements.referenceCopyAll.disabled = !buildReferenceCopyBundle(referenceItem);
 
